@@ -13,7 +13,12 @@ gpu_stats = {
     "vram_used": 0,
     "vram_total": 0,
     "vram_used_percent": 0,
+    "gtt_used": 0,
+    "gtt_total": 0,
+    "gtt_used_percent": 0,
     "gpu_temperature": 0,
+    "is_apu": False,
+    "device_name": "",
     "last_update": 0
 }
 
@@ -94,24 +99,70 @@ def get_gpu_info(rocm_smi_path):
     except:
         pass
     
+    # Get device name for APU detection
+    try:
+        info = run_rocm_smi_command(rocm_smi_path, '--showproductname', '--json')
+        if isinstance(info, dict) and 'card0' in info:
+            card_info = info['card0']
+            for key in ('Card Series', 'Card Model', 'Card Vendor', 'Card SKU'):
+                if key in card_info:
+                    gpu_stats["device_name"] = str(card_info[key])
+                    break
+    except:
+        pass
+
     # Get VRAM information
     try:
         info = run_rocm_smi_command(rocm_smi_path, '--showmeminfo', 'vram', '--json')
         if isinstance(info, dict) and 'card0' in info:
             card_info = info['card0']  # Use first GPU
-            
+
             # Parse the B (bytes) format ROCm 5.x/6.x uses
             if 'VRAM Total Memory (B)' in card_info and 'VRAM Total Used Memory (B)' in card_info:
                 vram_total_bytes = int(card_info['VRAM Total Memory (B)'])
                 vram_used_bytes = int(card_info['VRAM Total Used Memory (B)'])
-                
+
                 # Convert to MB for display
                 vram_total = vram_total_bytes / (1024 * 1024)
                 vram_used = vram_used_bytes / (1024 * 1024)
-                
+
                 gpu_stats["vram_total"] = int(vram_total)
                 gpu_stats["vram_used"] = int(vram_used)
-                gpu_stats["vram_used_percent"] = int((vram_used / vram_total) * 100)
+                gpu_stats["vram_used_percent"] = int((vram_used / vram_total) * 100) if vram_total > 0 else 0
+    except:
+        pass
+
+    # Get GTT (unified system RAM) information — critical for APUs like Strix Halo
+    try:
+        info = run_rocm_smi_command(rocm_smi_path, '--showmeminfo', 'gtt', '--json')
+        if isinstance(info, dict) and 'card0' in info:
+            card_info = info['card0']
+            if 'GTT Total Memory (B)' in card_info and 'GTT Total Used Memory (B)' in card_info:
+                gtt_total_bytes = int(card_info['GTT Total Memory (B)'])
+                gtt_used_bytes = int(card_info['GTT Total Used Memory (B)'])
+
+                gtt_total = gtt_total_bytes / (1024 * 1024)
+                gtt_used = gtt_used_bytes / (1024 * 1024)
+
+                gpu_stats["gtt_total"] = int(gtt_total)
+                gpu_stats["gtt_used"] = int(gtt_used)
+                gpu_stats["gtt_used_percent"] = int((gtt_used / gtt_total) * 100) if gtt_total > 0 else 0
+    except:
+        pass
+
+    # Detect APU: GTT pool significantly larger than VRAM pool indicates unified memory architecture.
+    # Also catches explicit device name patterns (gfx1151 = Strix Halo, etc.)
+    try:
+        vram_total = gpu_stats["vram_total"]
+        gtt_total = gpu_stats["gtt_total"]
+        device_name = gpu_stats["device_name"].lower()
+        apu_name_hints = ("radeon 890m", "radeon 780m", "radeon 760m", "radeon 740m",
+                          "strix", "phoenix", "hawk point", "mendocino", "rembrandt",
+                          "raphael", "dragon range", "barcelo", "cezanne")
+        name_match = any(hint in device_name for hint in apu_name_hints)
+        # Heuristic: if GTT is at least 4x VRAM and VRAM < 8 GB, likely APU
+        size_match = gtt_total > 0 and vram_total > 0 and (gtt_total >= vram_total * 4) and vram_total < 8192
+        gpu_stats["is_apu"] = bool(name_match or size_match)
     except:
         pass
     
@@ -147,7 +198,12 @@ def send_monitor_update():
             'gpu_temperature': gpu_stats['gpu_temperature'],
             'vram_total': gpu_stats['vram_total'],
             'vram_used': gpu_stats['vram_used'],
-            'vram_used_percent': gpu_stats['vram_used_percent']
+            'vram_used_percent': gpu_stats['vram_used_percent'],
+            'gtt_total': gpu_stats['gtt_total'],
+            'gtt_used': gpu_stats['gtt_used'],
+            'gtt_used_percent': gpu_stats['gtt_used_percent'],
+            'is_apu': gpu_stats['is_apu'],
+            'device_name': gpu_stats['device_name'],
         }]
     }
     
@@ -233,7 +289,13 @@ class AMDGPUMonitor:
         monitor_update_interval = update_interval
         
         # Return current stats as a string for debugging
-        stats = f"GPU: {gpu_stats['gpu_utilization']}% | VRAM: {gpu_stats['vram_used']}MB/{gpu_stats['vram_total']}MB ({gpu_stats['vram_used_percent']}%) | Temp: {gpu_stats['gpu_temperature']}°C"
+        apu_tag = " [APU]" if gpu_stats['is_apu'] else ""
+        stats = (
+            f"GPU{apu_tag}: {gpu_stats['gpu_utilization']}% | "
+            f"VRAM: {gpu_stats['vram_used']}MB/{gpu_stats['vram_total']}MB ({gpu_stats['vram_used_percent']}%) | "
+            f"GTT: {gpu_stats['gtt_used']}MB/{gpu_stats['gtt_total']}MB ({gpu_stats['gtt_used_percent']}%) | "
+            f"Temp: {gpu_stats['gpu_temperature']}°C"
+        )
         return (stats,)
 
 # Register our node when this script is imported

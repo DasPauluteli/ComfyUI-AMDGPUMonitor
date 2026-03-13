@@ -1,6 +1,6 @@
 # AMD GPU Monitor for ComfyUI
 
-A simple, lightweight AMD GPU monitoring tool for ComfyUI that displays real-time information about your AMD GPU directly in the UI.
+A simple, lightweight AMD GPU monitoring tool for ComfyUI that displays real-time information about your AMD GPU directly in the UI. Supports both discrete AMD GPUs and APUs with unified memory (e.g. Strix Halo / gfx1151).
 
 ![AMD GPU Monitor Screenshot](https://github.com/iDAPPA/ComfyUI-AMDGPUMonitor/raw/main/screenshot.png)
 
@@ -8,12 +8,14 @@ A simple, lightweight AMD GPU monitoring tool for ComfyUI that displays real-tim
 
 - Real-time GPU utilization monitoring (%)
 - VRAM usage tracking (both in MB/GB and percentage)
+- **GTT / Unified RAM tracking for APUs** — dynamically allocated system RAM used as GPU memory (shown automatically on APUs like Strix Halo)
 - GPU temperature monitoring (°C)
+- Automatic APU detection — relabels VRAM as "reserved pool" and shows the GTT pool as "Unified RAM" for APUs
 - Color-coded indicators (blue for low, orange for medium, red for high usage)
 - Draggable, collapsible, and closable UI
 - Position persistence between sessions
-- Works with ROCm-enabled GPUs
-- Specifically tested with AMD Radeon RX 7900 XTX
+- Works with ROCm-enabled GPUs and APUs
+- Tested with AMD Radeon RX 7900 XTX (discrete) and Strix Halo APU (gfx1151)
 
 ## Installation
 
@@ -42,9 +44,19 @@ No setup is required. Once installed, the monitor will automatically appear in t
 - **Collapse/Expand**: Click the "−" button to collapse the monitor to just the title bar
 - **Close**: Click the "×" button to close the monitor (a "Show AMD GPU Monitor" button will appear to bring it back)
 
+## APU / Unified Memory Support
+
+On AMD APUs with dynamically allocated unified memory (e.g. **Strix Halo / gfx1151**, Phoenix, Hawk Point, Rembrandt, etc.), the GPU does not have a fixed VRAM pool. Instead, it uses system RAM via the **GTT (Graphics Translation Table)** pool managed by the kernel's TTM subsystem.
+
+The monitor detects this automatically and:
+
+- Shows a **"Unified RAM (GTT)"** bar (purple) representing the system RAM currently mapped for GPU use
+- Relabels the VRAM bar as **"VRAM (reserved pool)"** to clarify it is just a small pre-allocated chunk, not the full available memory
+- APU detection uses device name matching (Strix, Phoenix, Hawk Point, etc.) and a size heuristic (GTT ≥ 4× VRAM and VRAM < 8 GB)
+
 ## How It Works
 
-This extension uses the `rocm-smi` command-line tool to collect GPU information and displays it in a floating UI element in the ComfyUI interface. It does not affect the performance of ComfyUI or your GPU.
+This extension polls `rocm-smi` (or `amd-smi`) in a background thread to collect GPU information and pushes updates to the frontend via WebSocket. The floating UI is updated in real time and does not affect ComfyUI or GPU performance.
 
 ## Troubleshooting
 

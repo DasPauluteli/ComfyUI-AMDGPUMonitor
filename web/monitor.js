@@ -137,9 +137,48 @@ const createMonitorElement = () => {
     vramSection.appendChild(vramBarContainer);
     content.appendChild(vramSection);
     
+    // GTT / Unified RAM section (shown for APUs with dynamic unified memory)
+    const gttSection = document.createElement("div");
+    gttSection.style.marginBottom = "8px";
+    gttSection.style.display = "none"; // hidden until we know it's an APU
+
+    const gttLabel = document.createElement("div");
+    gttLabel.className = "amd-gtt-label";
+    gttLabel.textContent = "Unified RAM (GTT):";
+    gttLabel.style.marginBottom = "2px";
+
+    const gttBarContainer = document.createElement("div");
+    gttBarContainer.style.height = "15px";
+    gttBarContainer.style.backgroundColor = "#333";
+    gttBarContainer.style.borderRadius = "3px";
+    gttBarContainer.style.position = "relative";
+
+    const gttBar = document.createElement("div");
+    gttBar.className = "amd-gtt-bar";
+    gttBar.style.height = "100%";
+    gttBar.style.width = "0%";
+    gttBar.style.backgroundColor = "#a78bfa"; // Purple to distinguish from VRAM
+    gttBar.style.borderRadius = "3px";
+    gttBar.style.transition = "width 0.5s ease-out, background-color 0.3s";
+
+    const gttText = document.createElement("div");
+    gttText.className = "amd-gtt-text";
+    gttText.textContent = "0MB / 0MB (0%)";
+    gttText.style.position = "absolute";
+    gttText.style.top = "0";
+    gttText.style.left = "5px";
+    gttText.style.lineHeight = "15px";
+    gttText.style.textShadow = "1px 1px 1px #000";
+
+    gttBarContainer.appendChild(gttBar);
+    gttBarContainer.appendChild(gttText);
+    gttSection.appendChild(gttLabel);
+    gttSection.appendChild(gttBarContainer);
+    content.appendChild(gttSection);
+
     // Temperature section
     const tempSection = document.createElement("div");
-    
+
     const tempLabel = document.createElement("div");
     tempLabel.textContent = "GPU Temperature:";
     tempLabel.style.marginBottom = "2px";
@@ -304,80 +343,78 @@ const createMonitorElement = () => {
     // Initial visibility check
     updateShowButtonVisibility();
     
-    return { container, gpuBar, gpuText, vramBar, vramText, tempBar, tempText };
+    return { container, gpuBar, gpuText, vramBar, vramText, vramLabel, vramSection, gttBar, gttText, gttSection, gttLabel, tempBar, tempText };
+};
+
+const formatMemText = (usedMB, totalMB, percent) => {
+    if (totalMB >= 1024) {
+        return `${(usedMB / 1024).toFixed(1)}GB / ${(totalMB / 1024).toFixed(1)}GB (${percent}%)`;
+    }
+    return `${usedMB}MB / ${totalMB}MB (${percent}%)`;
+};
+
+const barColor = (percent, low = '#47a0ff', mid = '#ffad33', high = '#ff4d4d', midThresh = 70, highThresh = 85) => {
+    if (percent > highThresh) return high;
+    if (percent > midThresh) return mid;
+    return low;
 };
 
 // Update the monitor UI with new data
 const updateMonitorUI = (monitor, data) => {
     // Check if we have GPU data
     if (!data || !data.gpus || data.gpus.length === 0) return;
-    
+
     const gpu = data.gpus[0]; // Use the first GPU
-    
+    const isAPU = !!gpu.is_apu;
+
     // Update GPU utilization
     if (monitor.gpuBar && monitor.gpuText) {
         const utilization = gpu.gpu_utilization || 0;
         monitor.gpuBar.style.width = `${utilization}%`;
         monitor.gpuText.textContent = `${utilization}%`;
-        
-        // Change color based on utilization
-        if (utilization > 80) {
-            monitor.gpuBar.style.backgroundColor = '#ff4d4d';  // Red for high
-        } else if (utilization > 50) {
-            monitor.gpuBar.style.backgroundColor = '#ffad33';  // Orange for medium
-        } else {
-            monitor.gpuBar.style.backgroundColor = '#47a0ff';  // Blue for low
-        }
+        monitor.gpuBar.style.backgroundColor = barColor(utilization, '#47a0ff', '#ffad33', '#ff4d4d', 50, 80);
     }
-    
-    // Update VRAM usage
+
+    // Update VRAM usage — on APUs this is a small pre-allocated pool; label accordingly
     if (monitor.vramBar && monitor.vramText) {
         const vramPercent = gpu.vram_used_percent || 0;
         const vramUsed = gpu.vram_used || 0;
         const vramTotal = gpu.vram_total || 1;
-        
+
         monitor.vramBar.style.width = `${vramPercent}%`;
-        
-        // Format the text to show MB or GB
-        let vramUsedText = vramUsed;
-        let vramTotalText = vramTotal;
-        let unit = 'MB';
-        
-        if (vramTotal >= 1024) {
-            vramUsedText = (vramUsed / 1024).toFixed(1);
-            vramTotalText = (vramTotal / 1024).toFixed(1);
-            unit = 'GB';
-        }
-        
-        monitor.vramText.textContent = `${vramUsedText}${unit} / ${vramTotalText}${unit} (${vramPercent}%)`;
-        
-        // Change color based on VRAM usage
-        if (vramPercent > 85) {
-            monitor.vramBar.style.backgroundColor = '#ff4d4d';  // Red for high
-        } else if (vramPercent > 70) {
-            monitor.vramBar.style.backgroundColor = '#ffad33';  // Orange for medium
-        } else {
-            monitor.vramBar.style.backgroundColor = '#47a0ff';  // Blue for low
+        monitor.vramText.textContent = formatMemText(vramUsed, vramTotal, vramPercent);
+        monitor.vramBar.style.backgroundColor = barColor(vramPercent);
+
+        // On APUs, VRAM is just the small reserved pool — label it clearly
+        if (monitor.vramLabel) {
+            monitor.vramLabel.textContent = isAPU ? "VRAM (reserved pool):" : "VRAM Usage:";
         }
     }
-    
+
+    // Show/update GTT (unified RAM) section for APUs
+    if (monitor.gttSection) {
+        const hasGTT = (gpu.gtt_total || 0) > 0;
+        monitor.gttSection.style.display = (isAPU && hasGTT) ? "block" : "none";
+
+        if (isAPU && hasGTT && monitor.gttBar && monitor.gttText) {
+            const gttPercent = gpu.gtt_used_percent || 0;
+            const gttUsed = gpu.gtt_used || 0;
+            const gttTotal = gpu.gtt_total || 1;
+
+            monitor.gttBar.style.width = `${gttPercent}%`;
+            monitor.gttText.textContent = formatMemText(gttUsed, gttTotal, gttPercent);
+            // Purple baseline; warn orange/red as system RAM fills up
+            monitor.gttBar.style.backgroundColor = barColor(gttPercent, '#a78bfa', '#ffad33', '#ff4d4d');
+        }
+    }
+
     // Update temperature
     if (monitor.tempBar && monitor.tempText) {
         const temp = gpu.gpu_temperature || 0;
-        
-        // Assume max reasonable temp is 100°C for the progress bar
         const tempPercent = Math.min(temp, 100);
         monitor.tempBar.style.width = `${tempPercent}%`;
         monitor.tempText.textContent = `${temp}°C`;
-        
-        // Change color based on temperature
-        if (temp > 80) {
-            monitor.tempBar.style.backgroundColor = '#ff4d4d';  // Red for high
-        } else if (temp > 60) {
-            monitor.tempBar.style.backgroundColor = '#ffad33';  // Orange for medium
-        } else {
-            monitor.tempBar.style.backgroundColor = '#47a0ff';  // Blue for low
-        }
+        monitor.tempBar.style.backgroundColor = barColor(temp, '#47a0ff', '#ffad33', '#ff4d4d', 60, 80);
     }
 };
 
