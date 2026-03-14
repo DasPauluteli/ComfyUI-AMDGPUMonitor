@@ -3,6 +3,7 @@
 A simple, lightweight AMD GPU monitoring tool for ComfyUI that displays real-time information about your AMD GPU directly in the UI. Supports both discrete AMD GPUs and APUs with unified memory (e.g. Strix Halo / gfx1151).
 
 ![AMD GPU Monitor Screenshot](https://github.com/iDAPPA/ComfyUI-AMDGPUMonitor/raw/main/screenshot.png)
+![AMD APU Monitor Screenshot](https://github.com/iDAPPA/ComfyUI-AMDGPUMonitor/blob/main/screenshot2.png)
 
 ## Features
 
