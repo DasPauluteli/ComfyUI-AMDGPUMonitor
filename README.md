@@ -32,7 +32,7 @@ git clone https://github.com/iDAPPA/ComfyUI-AMDGPUMonitor.git
 ## Requirements
 
 - An AMD GPU with ROCm support
-- `rocm-smi` or `amd-smi` command-line tools installed and accessible in your PATH
+- `rocm-smi` or `amd-smi` command-line tools installed and accessible in your PATH (On arch based distros: `pacman -S amdsmi`)
 - ComfyUI running on a Linux system with ROCm drivers
 
 ## Usage
